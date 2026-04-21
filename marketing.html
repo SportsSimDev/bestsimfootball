@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Best Sim Footballは、指の反射神経ではなく「戦術」と「データ」で勝つ、本格派アメリカンフットボール・マネジメントシミュレーションゲームです。チームを率いてフランチャイズの頂点を目指せ！">
-    <meta name="keywords" content="アメフト, アメリカンフットボール, シミュレーションゲーム, マネージメント, 戦術, コーチ, NFL, フランチャイズ, Best Sim Football">
-    <title>Best Sim Football | 究極のアメフト・マネジメントシミュレーション</title>
+    <meta name="description" content="Best Sim Football is the ultimate American football management simulation. Stop playing, start coaching.">
+    <meta name="keywords" content="American football, simulation, management, tactical, coach, NFL, franchise, Best Sim Football">
+    <title>Best Sim Football | The "Manager" Simulation</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -33,18 +33,37 @@
             overflow-x: hidden;
         }
 
-        /* ユーティリティクラス */
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 0 20px;
+        /* 多言語切り替え制御 */
+        body[data-lang="ja"] .lang-en { display: none !important; }
+        body[data-lang="en"] .lang-ja { display: none !important; }
+
+        /* 言語切り替えボタン */
+        .lang-toggle-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 204, 255, 0.1);
+            border: 1px solid var(--accent-blue);
+            color: var(--accent-blue);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: bold;
+            z-index: 100;
+            transition: all 0.2s;
+        }
+        .lang-toggle-btn:hover {
+            background: var(--accent-blue);
+            color: #000;
         }
 
+        /* ユーティリティクラス */
+        .container { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
         .text-center { text-align: center; }
         .text-blue { color: var(--accent-blue); }
         .text-green { color: var(--accent-green); }
         .text-red { color: var(--accent-red); }
-        
         .eng-font { font-family: 'Orbitron', sans-serif; }
 
         /* ヒーローセクション */
@@ -131,10 +150,7 @@
         }
 
         /* セクション共通 */
-        .section {
-            padding: 80px 0;
-        }
-
+        .section { padding: 80px 0; }
         .section-title {
             font-size: 36px;
             margin-bottom: 50px;
@@ -166,84 +182,35 @@
             border-color: var(--accent-green);
         }
 
-        .feature-card h3 {
-            font-size: 22px;
-            margin-top: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .feature-card p {
-            color: #aaa;
-            font-size: 15px;
-        }
+        .feature-card h3 { font-size: 22px; margin-top: 0; }
+        .feature-card p { color: #aaa; font-size: 15px; }
 
         /* プレイスタイルセクション (Screenshots/UI) */
-        .ui-showcase {
-            background-color: #0d110d;
-            border-top: 1px solid #2a332a;
-            border-bottom: 1px solid #2a332a;
-        }
-
-        .ui-content {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 40px;
-        }
-
-        .ui-text {
-            flex: 1;
-            min-width: 300px;
-        }
-
+        .ui-showcase { background-color: #0d110d; border-top: 1px solid #2a332a; border-bottom: 1px solid #2a332a; }
+        .ui-content { display: flex; flex-wrap: wrap; align-items: center; gap: 40px; }
+        .ui-text { flex: 1; min-width: 300px; }
         .ui-image-placeholder {
-            flex: 1;
-            min-width: 300px;
-            height: 300px;
+            flex: 1; min-width: 300px; height: 300px;
             background: linear-gradient(135deg, #1a221a, #000);
             border: 2px solid var(--accent-blue);
             border-radius: 12px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: var(--accent-blue);
-            font-weight: bold;
+            display: flex; justify-content: center; align-items: center;
+            color: var(--accent-blue); font-weight: bold;
             box-shadow: 0 0 30px rgba(0, 204, 255, 0.2);
         }
 
         /* フッター */
-        .footer {
-            background-color: #000;
-            padding: 40px 20px;
-            text-align: center;
-            border-top: 1px solid #333;
-        }
-
-        .footer-links {
-            margin-bottom: 20px;
-        }
-
-        .footer-links a {
-            color: var(--accent-blue);
-            text-decoration: none;
-            margin: 0 15px;
-            font-size: 14px;
-        }
-
-        .footer-links a:hover {
-            text-decoration: underline;
-        }
-
-        .footer p {
-            color: #666;
-            font-size: 12px;
-            margin: 5px 0;
-        }
+        .footer { background-color: #000; padding: 40px 20px; text-align: center; border-top: 1px solid #333; }
+        .footer-links { margin-bottom: 20px; }
+        .footer-links a { color: var(--accent-blue); text-decoration: none; margin: 0 15px; font-size: 14px; }
+        .footer-links a:hover { text-decoration: underline; }
+        .footer p { color: #666; font-size: 12px; margin: 5px 0; }
     </style>
 </head>
-<body>
+<!-- デフォルトは英語、JSでブラウザ言語を判別して上書き -->
+<body data-lang="en">
+
+    <button class="lang-toggle-btn" onclick="toggleLanguage()">🌐 EN / JA</button>
 
     <!-- Hero Section -->
     <header class="hero">
@@ -252,14 +219,11 @@
             <h2 class="eng-font">THE "MANAGER" SIMULATION</h2>
             <div class="tagline text-center">
                 Stop playing, start coaching.<br>
-                <span style="font-size: 0.6em; color: #aaa;">遊ぶのをやめ、采配を振るえ。</span>
+                <span class="lang-ja" style="font-size: 0.6em; color: #aaa;">遊ぶのをやめ、采配を振るえ。</span>
             </div>
-            <p class="text-center" style="max-width: 600px; color: #ccc;">
-                指の反射神経は必要ありません。求められるのは「戦術眼」と「データ分析力」。<br>
-                アメリカンフットボールの奥深き戦略レイヤーを再現した、究極の采配シミュレーションゲームが遂に登場。
-            </p>
+            <p class="text-center lang-ja" style="max-width: 600px; color: #ccc;">指の反射神経は必要ありません。求められるのは「戦術眼」と「データ分析力」。<br>アメリカンフットボールの奥深き戦略レイヤーを再現した、究極の采配シミュレーションゲームが遂に登場。</p>
+            <p class="text-center lang-en" style="max-width: 600px; color: #ccc;">No reflexes required. Only tactical vision and data analysis.<br>The ultimate football management simulation where your X's and O's come to life.</p>
             <div class="store-buttons">
-                <!-- App Storeのリンクが決まったら href を書き換えてください -->
                 <a href="#" class="btn-store btn-ios eng-font">Download on the App Store</a>
             </div>
         </div>
@@ -273,15 +237,18 @@
         <div class="features-grid">
             <div class="feature-card">
                 <h3 class="text-blue eng-font">01. TACTICAL PLAYCALL</h3>
-                <p><strong>アクション操作は一切不要。</strong><br>300通り以上の組み合わせが可能な「モジュラー式プレイコール」を採用。レシーバーのルートを個別に設定し、デコイ（囮）でスペースを作り出すなど、あなたの思い描く「X's and O's（作戦図）」をフィールドで表現できます。</p>
+                <p class="lang-ja"><strong>アクション操作は一切不要。</strong><br>300通り以上の組み合わせが可能な「モジュラー式プレイコール」を採用。レシーバーのルートを個別に設定し、デコイ（囮）でスペースを作り出すなど、あなたの思い描く「X's and O's（作戦図）」をフィールドで表現できます。</p>
+                <p class="lang-en"><strong>Zero Action Required.</strong><br>Build your play from over 300 modular combinations. Set individual receiver routes, create decoys, and draw your perfect X's and O's on the field.</p>
             </div>
             <div class="feature-card">
                 <h3 class="text-red eng-font">02. ADVANCED ANALYTICS</h3>
-                <p><strong>データが証明する、あなたの神采配。</strong><br>NFLのアナリティクスにインスパイアされた「WP（Win Probability：勝率）推移グラフ」を搭載。AIとの戦術的優位性を数値化し、試合終了後に「Coach Rating（名将ランキング）」としてあなたの手腕を評価します。</p>
+                <p class="lang-ja"><strong>データが証明する、あなたの神采配。</strong><br>NFLのアナリティクスにインスパイアされた「WP（Win Probability：勝率）推移グラフ」を搭載。AIとの戦術的優位性を数値化し、試合終了後に「Coach Rating（名将ランキング）」としてあなたの手腕を評価します。</p>
+                <p class="lang-en"><strong>Data Proves Your Genius.</strong><br>Featuring modern football analytics and Win Probability (WP) charts. We quantify your tactical edge over the AI, evaluating your skills in the post-game Coach Rankings.</p>
             </div>
             <div class="feature-card">
                 <h3 class="text-green eng-font">03. FRANCHISE & GOD EDIT</h3>
-                <p><strong>理想のリーグを創造せよ。</strong><br>全32チーム（またはカレッジ130チーム）のシーズン・フランチャイズモードを搭載。全選手・監督のパラメータを自由に書き換えられる「神エディット」機能により、自分だけのロースターを作成し、JSONデータとして世界中のファンと共有可能です。</p>
+                <p class="lang-ja"><strong>理想のリーグを創造せよ。</strong><br>全32チーム（またはカレッジ130チーム）のシーズン・フランチャイズモードを搭載。全選手・監督のパラメータを自由に書き換えられる「神エディット」機能により、自分だけのロースターを作成し、JSONデータとして世界中のファンと共有可能です。</p>
+                <p class="lang-en"><strong>Create Your Ideal League.</strong><br>32 Pro or 130 College teams in Franchise mode. Rewrite any player or coach parameter with God Edit, and share your custom roster as JSON with the world.</p>
             </div>
         </div>
     </section>
@@ -291,36 +258,50 @@
         <div class="container ui-content">
             <div class="ui-text">
                 <h2 class="section-title eng-font text-blue" style="border-bottom-color: var(--accent-blue);">Immersive Dashboard</h2>
-                <p style="font-size: 18px; font-weight: bold; color: #fff;">戦況を支配する「コーチのタブレット」</p>
-                <p style="color: #aaa;">
-                    試合画面は、ミリタリー＆サイバー調の洗練されたダッシュボードUIを採用。
-                    画面の左側で22人の選手たちがダイナミックなカメラワークで躍動し、右側には詳細な実況ログとアナリティクスがリアルタイムに更新されていきます。<br><br>
-                    ダウン、距離、時間、そして選手の疲労度。すべての情報を統合し、勝負を分ける決断を下してください。
-                </p>
+                <p class="lang-ja" style="font-size: 18px; font-weight: bold; color: #fff;">戦況を支配する「コーチのタブレット」</p>
+                <p class="lang-ja" style="color: #aaa;">試合画面は、ミリタリー＆サイバー調の洗練されたダッシュボードUIを採用。画面の左側で22人の選手たちがダイナミックなカメラワークで躍動し、右側には詳細な実況ログとアナリティクスがリアルタイムに更新されていきます。<br><br>ダウン、距離、時間、そして選手の疲労度。すべての情報を統合し、勝負を分ける決断を下してください。</p>
+                
+                <p class="lang-en" style="font-size: 18px; font-weight: bold; color: #fff;">The Coach's Tablet that controls the game.</p>
+                <p class="lang-en" style="color: #aaa;">A sleek, military/cyber-themed dashboard UI. Watch 22 players execute your dynamic plays on the left, while real-time analytics and play-by-play logs update on the right.<br><br>Down, distance, clock, and player fatigue. Integrate all information and make the game-winning call.</p>
             </div>
-            <!-- ※実際のゲーム画面のスクリーンショットを用意できたら、imgタグに差し替えてください -->
-            <div class="ui-image-placeholder eng-font">
-                [ GAME SCREENSHOT HERE ]
-            </div>
+            <div class="ui-image-placeholder eng-font">[ GAME SCREENSHOT HERE ]</div>
         </div>
     </section>
 
     <!-- Call to Action -->
     <section class="section container text-center">
         <h2 class="eng-font" style="font-size: 32px; color: #fff;">LEAD YOUR FRANCHISE TO GLORY</h2>
-        <p style="color: #aaa; margin-bottom: 40px;">データと論理でフィールドを制圧する準備はできましたか？</p>
+        <p class="lang-ja" style="color: #aaa; margin-bottom: 40px;">データと論理でフィールドを制圧する準備はできましたか？</p>
+        <p class="lang-en" style="color: #aaa; margin-bottom: 40px;">Ready to dominate the gridiron with data and logic?</p>
         <a href="#" class="btn-store btn-ios eng-font">Download on the App Store</a>
     </section>
 
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-links">
-            <a href="privacy-policy-jp.html">プライバシーポリシー (Privacy Policy)</a>
-            <a href="privacy-policy-jp.html">利用規約 (Terms of Service)</a>
+            <a href="privacy-policy-jp.html" class="lang-ja">プライバシーポリシー</a>
+            <a href="privacy-policy-en.html" class="lang-en">Privacy Policy</a>
+            <span style="color:#555;">|</span>
+            <a href="privacy-policy-jp.html" class="lang-ja">利用規約</a>
+            <a href="privacy-policy-en.html" class="lang-en">Terms of Service</a>
         </div>
         <p class="eng-font">DISCLAIMER: This game is a work of fiction and is NOT affiliated with the NFL, NFLPA, or any real-world sports leagues.</p>
         <p class="eng-font">&copy; 2026 Sports Sim Dev. All rights reserved.</p>
     </footer>
 
+    <script>
+        // 初期言語の設定 (ブラウザの言語を判定)
+        document.addEventListener("DOMContentLoaded", () => {
+            const userLang = navigator.language || navigator.userLanguage;
+            const isJapanese = userLang.startsWith('ja');
+            document.body.setAttribute('data-lang', isJapanese ? 'ja' : 'en');
+        });
+
+        // 手動トグル
+        function toggleLanguage() {
+            const currentLang = document.body.getAttribute('data-lang');
+            document.body.setAttribute('data-lang', currentLang === 'ja' ? 'en' : 'ja');
+        }
+    </script>
 </body>
 </html>
