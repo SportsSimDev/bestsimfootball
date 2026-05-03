@@ -1,742 +1,402 @@
-import React, { useState, useEffect } from 'react';
-import Papa from 'papaparse';
-import { mapExternalRosterToInternal } from './rosterParser';
-import { saveAFCustomTeams, migrateAFTeams } from './storage';
-import { LongPressable, getLang } from './App';
-
-// --- アメフト用 神エディット＆共有画面 ---
-export const AFEditScreen = ({ teams, setTeams, onBack, tutorialStep, completeTutorialStep }) => {
-  const [teamIdx, setTeamIdx] = useState(0);
-  const [playerIdx, setPlayerIdx] = useState(0);
-  const [confirmModal, setConfirmModal] = useState(null);
-  const [alertMessage, setAlertMessage] = useState('');
-  const [exportFormat, setExportFormat] = useState('txt');
-  const [selectedLeagueType, setSelectedLeagueType] = useState('Normal');
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const lang = getLang();
-  const isJa = lang === 'ja';
-  const isEs = lang === 'es';
-  const tTextEdit = (ja, es, en) => isJa ? ja : (isEs ? es : en);
-  const [editTab, setEditTab] = useState('edit'); // 'build' | 'edit'
-  const [importText, setImportText] = useState('');
-  const [showImportHelp, setShowImportHelp] = useState(false);
-
-  useEffect(() => {
-    if (tutorialStep === 0) {
-      completeTutorialStep(0);
-      setEditTab('build'); // 初期はBUILDタブを強制
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Best Sim Football - Roster Guide</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background-color: #f4f7f6;
+      margin: 0;
+      padding: 0;
     }
-  }, [tutorialStep, completeTutorialStep]);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const team = teams[teamIdx] || teams[0];
-  const player = playerIdx === -1 ? null : (team?.lineup[playerIdx] || team?.lineup[0]);
-
-  const handleExport = async (teamsData, format) => {
-    try {
-      let dataStr = '';
-      let mimeType = 'text/plain';
-      
-      if (format === 'json') {
-        dataStr = JSON.stringify(teamsData, null, 2);
-        mimeType = 'application/json';
-      } else if (format === 'txt') {
-        let txt = "================================================================================\n";
-        txt += " Best Sim Football - Roster Data Report\n";
-        txt += "================================================================================\n\n";
-        teamsData.forEach(t => {
-          txt += `Team: ${t.name} (${t.initial})\n`;
-          txt += `Conference: ${t.league} / Division: ${t.division}\n`;
-          txt += `Head Coach: ${t.manager.name} (IN: ${t.manager.inside_run}, OUT: ${t.manager.outside_run}, SP: ${t.manager.short_pass}, DP: ${t.manager.deep_pass}, AGG: ${t.manager.def_aggressiveness})\n`;
-          txt += `--------------------------------------------------------------------------------\n`;
-          txt += `Pos | Name                 | SPD STR AGI AWR ACC POW CTH RTE SEC BLK RSH TKL COV\n`;
-          txt += `--------------------------------------------------------------------------------\n`;
-          t.lineup.forEach(p => {
-            const s = p.af_stats || {};
-            const pad = (str, len) => String(str).padEnd(len, ' ');
-            const padNum = (num) => String(num || 0).padStart(3, ' ');
-            txt += `${pad(s.position, 3)} | ${pad(p.name, 20)} | ${padNum(s.speed)} ${padNum(s.strength)} ${padNum(s.agility)} ${padNum(s.awareness)} ${padNum(s.passAccuracy)} ${padNum(s.passPower)} ${padNum(s.catch)} ${padNum(s.routeRunning)} ${padNum(s.ballSecurity)} ${padNum(s.blocking)} ${padNum(s.passRush)} ${padNum(s.tackling)} ${padNum(s.coverage)}\n`;
-          });
-          txt += `================================================================================\n\n`;
-        });
-        dataStr = txt;
-        mimeType = 'text/plain';
-      } else if (format === 'csv') {
-        let csv = "Team,Initial,Conf,Div,Type,Name,Pos,Speed_InsideRun,Strength_OutsideRun,Agility_ShortPass,Awareness_DeepPass,PassAcc_DefAgg,PassPow,Catch,Route,BallSec,Block,Rush,Tackle,Cov\n";
-        teamsData.forEach(t => {
-          csv += `"${t.name}","${t.initial}","${t.league}","${t.division}","Manager","${t.manager.name}","HC",${t.manager.inside_run},${t.manager.outside_run},${t.manager.short_pass},${t.manager.deep_pass},${t.manager.def_aggressiveness || 50},0,0,0,0,0,0,0,0\n`;
-          t.lineup.forEach(p => {
-            const s = p.af_stats || {};
-            csv += `"${t.name}","${t.initial}","${t.league}","${t.division}","Player","${p.name}","${s.position}",${s.speed||0},${s.strength||0},${s.agility||0},${s.awareness||0},${s.passAccuracy||0},${s.passPower||0},${s.catch||0},${s.routeRunning||0},${s.ballSecurity||0},${s.blocking||0},${s.passRush||0},${s.tackling||0},${s.coverage||0}\n`;
-          });
-        });
-        dataStr = csv;
-        mimeType = 'text/csv';
-      }
-
-      const blob = new Blob([dataStr], { type: mimeType });
-      const filename = `afsim_custom_roster.${format}`;
-      const file = new File([blob], filename, { type: mimeType });
-
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({
-            title: 'Best Sim Football Roster',
-            files: [file]
-          });
-          return;
-        } catch (err) {
-          console.warn('Share cancelled or failed', err);
-          if (err.name === 'AbortError') return;
-        }
-      }
-
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error('Export failed:', e);
-      setAlertMessage(isJa ? 'エクスポートに失敗しました' : 'Export failed.');
+    .container {
+      max-width: 800px;
+      margin: 30px auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-  };
-
-  const processImportedContent = (fileContent, sourceName) => {
-    try {
-      const nameLower = sourceName.toLowerCase();
-      const trimmedContent = fileContent.trim();
-      let imported = null;
-
-      const isJson = trimmedContent.startsWith('[') || trimmedContent.startsWith('{');
-      const isTxt = nameLower.endsWith('.txt') && !isJson;
-      const isCsv = !isJson && !isTxt && (nameLower.endsWith('.csv') || trimmedContent.includes(','));
-
-      if (isJson) {
-        imported = JSON.parse(trimmedContent);
-      } else if (isCsv) {
-        const parsedCsv = Papa.parse(trimmedContent, { header: true, skipEmptyLines: true });
-        if (parsedCsv.data && parsedCsv.data.length > 0) {
-          const firstRow = parsedCsv.data[0];
-          if (firstRow.PFNA !== undefined || firstRow.PGID !== undefined || firstRow.player_name !== undefined || firstRow.gsis_id !== undefined) {
-            const players = mapExternalRosterToInternal(parsedCsv.data);
-            const teamsMap = {};
-            parsedCsv.data.forEach((row, i) => {
-              const tgid = row.TGID || row.team || 'FA';
-              if (!teamsMap[tgid]) {
-                teamsMap[tgid] = {
-                  name: tgid === 'FA' ? 'Free Agents' : `Team ${tgid}`, 
-                  initial: String(tgid).substring(0, 3).toUpperCase(),
-                  league: 'Conf', division: 'Div',
-                  color: { home: { main: '#1a5f9a' } },
-                  af_stats: { wins: 0, losses: 0, pf: 0, pa: 0 },
-                  manager: { name: 'Coach', inside_run: 50, outside_run: 50, short_pass: 50, deep_pass: 50, def_aggressiveness: 50 },
-                  lineup: []
-                };
-              }
-              const player = players[i];
-              const fullName = player.firstName ? `${player.firstName[0]}.${player.lastName}` : player.lastName;
-              teamsMap[tgid].lineup.push({
-                name: fullName,
-                af_stats: { position: player.position, ...player.attributes, fatigue: player.status.fatigue, condition: player.status.condition }
-              });
-            });
-            imported = Object.values(teamsMap);
-          } else if (firstRow.Team !== undefined) {
-            const newTeamsMap = {};
-            const newTeamsList = [];
-            parsedCsv.data.forEach(row => {
-              const tName = row.Team;
-              if (!tName) return;
-              if (!newTeamsMap[tName]) {
-                newTeamsMap[tName] = {
-                  name: tName, initial: row.Initial, league: row.Conf, division: row.Div,
-                  color: { home: { main: '#1a5f9a' } },
-                  af_stats: { wins: 0, losses: 0, pf: 0, pa: 0 },
-                  manager: { name: 'Coach', inside_run: 50, outside_run: 50, short_pass: 50, deep_pass: 50, def_aggressiveness: 50 },
-                  lineup: []
-                };
-                newTeamsList.push(newTeamsMap[tName]);
-              }
-              const t = newTeamsMap[tName];
-              if (row.Type === 'Manager') {
-                t.manager = { name: row.Name, inside_run: parseInt(row.Speed_InsideRun)||50, outside_run: parseInt(row.Strength_OutsideRun)||50, short_pass: parseInt(row.Agility_ShortPass)||50, deep_pass: parseInt(row.Awareness_DeepPass)||50, def_aggressiveness: parseInt(row.PassAcc_DefAgg)||50 };
-              } else if (row.Type === 'Player') {
-                t.lineup.push({
-                  name: row.Name,
-                  af_stats: {
-                    position: row.Pos, speed: parseInt(row.Speed_InsideRun)||0, strength: parseInt(row.Strength_OutsideRun)||0, agility: parseInt(row.Agility_ShortPass)||0, awareness: parseInt(row.Awareness_DeepPass)||0,
-                    passAccuracy: parseInt(row.PassAcc_DefAgg)||0, passPower: parseInt(row.PassPow)||0, catch: parseInt(row.Catch)||0, routeRunning: parseInt(row.Route)||0, ballSecurity: parseInt(row.BallSec)||0, blocking: parseInt(row.Block)||0, passRush: parseInt(row.Rush)||0, tackling: parseInt(row.Tackle)||0, coverage: parseInt(row.Cov)||0
-                  }
-                });
-              }
-            });
-            imported = newTeamsList;
-          }
-        }
-      } else if (isTxt) {
-        const lines = trimmedContent.split('\n');
-          const newTeamsList = [];
-          let currentTeam = null;
-          for (let line of lines) {
-            line = line.trim();
-            if (!line) continue;
-            const teamMatch = line.match(/^Team:\s+(.+?)\s+\((.*?)\)/);
-            if (teamMatch) {
-              currentTeam = { name: teamMatch[1].trim(), initial: teamMatch[2].trim(), league: '', division: '', color: { home: { main: '#1a5f9a' } }, af_stats: { wins: 0, losses: 0, pf: 0, pa: 0 }, manager: { name: 'Coach', inside_run: 50, outside_run: 50, short_pass: 50, deep_pass: 50, def_aggressiveness: 50 }, lineup: [] };
-              newTeamsList.push(currentTeam);
-              continue;
-            }
-            if (currentTeam) {
-              const confMatch = line.match(/^Conference:\s+(.+?)\s+\/\s+Division:\s+(.+)/);
-              if (confMatch) { currentTeam.league = confMatch[1].trim(); currentTeam.division = confMatch[2].trim(); continue; }
-              const hcMatch = line.match(/^Head Coach:\s+(.+?)\s+\(IN:\s+(\d+),\s+OUT:\s+(\d+),\s+SP:\s+(\d+),\s+DP:\s+(\d+),\s+AGG:\s+(\d+)\)/);
-              if (hcMatch) { currentTeam.manager = { name: hcMatch[1].trim(), inside_run: parseInt(hcMatch[2],10), outside_run: parseInt(hcMatch[3],10), short_pass: parseInt(hcMatch[4],10), deep_pass: parseInt(hcMatch[5],10), def_aggressiveness: parseInt(hcMatch[6],10) }; continue; }
-              const playerMatch = line.match(/^([A-Z0-9]{1,3})\s+\|\s+(.+?)\s+\|\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
-              if (playerMatch) {
-                currentTeam.lineup.push({
-                  name: playerMatch[2].trim(),
-                  af_stats: {
-                    position: playerMatch[1].trim(), speed: parseInt(playerMatch[3],10), strength: parseInt(playerMatch[4],10), agility: parseInt(playerMatch[5],10), awareness: parseInt(playerMatch[6],10),
-                    passAccuracy: parseInt(playerMatch[7],10), passPower: parseInt(playerMatch[8],10), catch: parseInt(playerMatch[9],10), routeRunning: parseInt(playerMatch[10],10),
-                    ballSecurity: parseInt(playerMatch[11],10), blocking: parseInt(playerMatch[12],10), passRush: parseInt(playerMatch[13],10), tackling: parseInt(playerMatch[14],10), coverage: parseInt(playerMatch[15],10)
-                  }
-                });
-              }
-            }
-          }
-          imported = newTeamsList;
-        }
-        if (imported && Array.isArray(imported)) { 
-          setTeams(migrateAFTeams(imported)); setHasUnsavedChanges(true);
-          setAlertMessage(isJa ? '✅ カスタムロースターを読み込みました！セーブボタンを押して保存してください。' : '✅ Custom roster loaded! Please click SAVE to apply changes.'); 
-          setEditTab('edit');
-        } else { throw new Error('Invalid format'); }
-      } catch (err) {
-        console.error('Import failed:', err);
-        setAlertMessage(isJa ? `インポートに失敗しました: ${err.message}\nファイル形式やURLを確認してください。` : `Import failed: ${err.message}\nPlease check the file format or URL.`);
-      }
-  };
-
-  const handleImportFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => processImportedContent(event.target.result, file.name);
-    reader.readAsText(file);
-    e.target.value = null;
-  };
-
-  const handleImportTextSubmit = () => {
-    if (!importText.trim()) return;
-    processImportedContent(importText, 'paste.csv');
-    setImportText('');
-  };
-
-  const handlePaste = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      setImportText(text);
-    } catch (err) {
-      alert(isJa ? 'クリップボードからの読み込みに失敗しました。手動で貼り付けてください。' : 'Failed to read from clipboard. Please paste manually.');
+    .lang-selector {
+      text-align: right;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 15px;
     }
-  };
-
-  const updatePlayer = (field, val) => {
-    const newTeams = [...teams];
-    const p = newTeams[teamIdx].lineup[playerIdx];
-    if (field === 'name') p.name = val;
-    else if (field === 'position') { if (!p.af_stats) p.af_stats = {}; p.af_stats.position = val; } 
-    else {
-      if (!p.af_stats) p.af_stats = {};
-      const numVal = val === '' ? 0 : parseInt(val, 10);
-      p.af_stats[field] = isNaN(numVal) ? 0 : numVal;
+    .lang-btn {
+      background: #f0f0f0;
+      color: #555;
+      border: 1px solid #ccc;
+      padding: 6px 16px;
+      margin-left: 8px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 14px;
+      transition: all 0.2s;
     }
-    setTeams(newTeams); setHasUnsavedChanges(true);
-  };
-
-  const updateTeam = (field, val) => {
-    const newTeams = [...teams];
-    if (field === 'name') newTeams[teamIdx].name = val;
-    else if (field === 'initial') newTeams[teamIdx].initial = val;
-    setTeams(newTeams); setHasUnsavedChanges(true);
-  };
-
-  const updateTeamColor = (colorHex) => {
-    const newTeams = [...teams];
-    if (!newTeams[teamIdx].color) newTeams[teamIdx].color = { home: { main: colorHex }, visitor: { main: '#ffffff' } };
-    else { if (!newTeams[teamIdx].color.home) newTeams[teamIdx].color.home = {}; newTeams[teamIdx].color.home.main = colorHex; }
-    setTeams(newTeams); setHasUnsavedChanges(true);
-  };
-
-  const updateManager = (field, val) => {
-    const newTeams = [...teams];
-    if (!newTeams[teamIdx].manager) newTeams[teamIdx].manager = { name: 'Coach', inside_run: 50, outside_run: 50, short_pass: 50, deep_pass: 50 };
-    if (field === 'name') newTeams[teamIdx].manager.name = val;
-    else {
-      const numVal = val === '' ? 0 : parseInt(val, 10);
-      newTeams[teamIdx].manager[field] = isNaN(numVal) ? 0 : numVal;
+    .lang-btn:hover {
+      background: #e0e0e0;
     }
-    setTeams(newTeams); setHasUnsavedChanges(true);
-  };
-
-  const handleSave = () => {
-    saveAFCustomTeams(teams);
-    setHasUnsavedChanges(false);
-    if (tutorialStep === 2) {
-      completeTutorialStep(2);
-      setAlertMessage(isJa ? '✅ チームデータが作成・保存されました！\n「戻る」ボタンからメニューに戻り、試合を始めましょう！' : '✅ Team data created and saved!\nClick BACK to return to the menu and start playing!');
-    } else {
-      setAlertMessage(isJa ? '✅ エディットデータをローカルに保存しました！' : '✅ Custom Roster saved locally!');
+    .lang-btn.active {
+      background: #1a5f9a;
+      color: #fff;
+      border-color: #1a5f9a;
     }
-  };
-
-  const handleBack = () => {
-    if (hasUnsavedChanges) {
-      if (!window.confirm(isJa ? '未保存の変更があります。変更を破棄して戻りますか？' : 'You have unsaved changes. Discard and go back?')) return;
+    h1 {
+      color: #1a5f9a;
+      margin-top: 0;
     }
-    onBack();
-  };
+    h2 {
+      color: #2E7D32;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+      margin-top: 30px;
+    }
+    h3 {
+      color: #e65100;
+      margin-top: 25px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background-color: #f0f0f0;
+      font-weight: bold;
+    }
+    code {
+      background-color: #eee;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      color: #d32f2f;
+    }
+    .note {
+      background-color: #fff3e0;
+      border-left: 4px solid #ff9800;
+      padding: 15px;
+      margin: 15px 0;
+      font-size: 14px;
+      border-radius: 0 4px 4px 0;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      color: white;
+    }
+    .bg-blue { background-color: #1976D2; }
+    .bg-green { background-color: #388E3C; }
+    .bg-orange { background-color: #F57C00; }
+    pre {
+      background: #222;
+      color: #0cf;
+      padding: 15px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+  </style>
+  <script>
+    function setLang(lang) {
+      document.querySelectorAll('[data-lang-content]').forEach(el => {
+        el.style.display = el.getAttribute('data-lang-content') === lang ? 'block' : 'none';
+      });
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        if (btn.getAttribute('data-lang-btn') === lang) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+      document.documentElement.lang = lang;
+    }
 
-  const generateLeague = (type) => setConfirmModal(type);
-
-  const confirmGenerateLeague = () => {
-    const type = confirmModal;
-    setConfirmModal(null);
-    const count = type === 'Normal' ? 32 : (type === 'NoName' ? 130 : (type === 'Simple3' ? 7 : (type === 'Simple2' ? 9 : 12)));
-    const newTeams = [];
-    const cities = ["Empire City", "Angel Coast", "Windy City", "Space Port", "Sun Valley", "Liberty", "Alamo", "Ocean View", "Lone Star", "Silicon", "Capital", "Motor City", "Emerald", "Mile High", "Music City", "Steel Town", "Gold Coast", "Bay City", "Rivertown", "Twin Cities", "Desert Springs", "Pine Valley", "Silver State", "Redwood", "Crescent", "Grand Peaks", "Ironville", "Crystal Bay", "Maple Ridge", "Cobalt", "Aurora", "Brimstone"];
-    const mascots = ["Rhinos", "Cobras", "Vipers", "Dragons", "Griffins", "Phantoms", "Storm", "Thunder", "Lightning", "Cyclones", "Comets", "Meteors", "Orbiters", "Stars", "Blazers", "Pioneers", "Knights", "Spartans", "Gladiators", "Hunters", "Snipers", "Vanguards", "Sentinels", "Wardens", "Mutants", "Cyborgs", "Mechas", "Monsters", "Gargoyles", "Krakens", "Reapers", "Brawlers"];
-    const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson", "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Nguyen", "Hill", "Flores", "Green", "Adams", "Nelson", "Baker", "Hall", "Rivera", "Campbell", "Mitchell", "Carter", "Roberts"];
-    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const generateName = () => `${letters[Math.floor(Math.random() * letters.length)]}.${lastNames[Math.floor(Math.random() * lastNames.length)]}`;
-    const usedTeamNames = new Set();
-    const generateTeamName = (isCollege) => {
-      let tName = "";
-      do {
-        const city = cities[Math.floor(Math.random() * cities.length)];
-        const mascot = mascots[Math.floor(Math.random() * mascots.length)];
-        if (isCollege) { tName = `${city} ${["State", "Univ", "Tech", "College"][Math.floor(Math.random() * 4)]} ${mascot}`; } 
-        else { tName = `${city} ${mascot}`; }
-      } while (usedTeamNames.has(tName));
-      usedTeamNames.add(tName);
-      return tName;
+    window.onload = function() {
+      let lang = navigator.language || navigator.userLanguage;
+      if (lang.startsWith('ja')) setLang('ja');
+      else if (lang.startsWith('es')) setLang('es');
+      else setLang('en');
     };
-    const createTeam = (name, initial, conf, div, i) => ({
-      name, initial, league: conf, division: div,
-      color: { home: { main: i%2===0 ? '#1a5f9a' : '#9a1a1a' } },
-      af_stats: { wins: 0, losses: 0, pf: 0, pa: 0 },
-      manager: { name: generateName(), inside_run: 30 + Math.floor(Math.random() * 40), outside_run: 30 + Math.floor(Math.random() * 40), short_pass: 60 + Math.floor(Math.random() * 40), deep_pass: 50 + Math.floor(Math.random() * 40), def_aggressiveness: 30 + Math.floor(Math.random() * 70) },
-      // 🏈 ロースターを40人に拡充し、控え選手（ローテーション）を機能させる
-      lineup: Array(40).fill(null).map((_, j) => {
-        const pos = j<2?'QB':j<5?'RB':j<6?'FB':j<11?'WR':j<14?'TE':j<22?'OL':j<28?'DL':j<33?'LB':j<38?'DB':j===38?'K':'P';
-        const rand = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
-        const s = { position: pos, speed: rand(50, 80), strength: rand(50, 80), agility: rand(50, 80), awareness: rand(50, 80), passAccuracy: rand(20, 50), passPower: rand(20, 50), catch: rand(30, 60), routeRunning: rand(30, 60), ballSecurity: rand(40, 70), blocking: rand(30, 60), passRush: rand(30, 60), tackling: rand(30, 60), coverage: rand(30, 60), fatigue: 0 };
-        if (pos === 'QB') { s.passAccuracy = rand(70, 95); s.passPower = rand(70, 95); s.awareness = rand(70, 95); s.speed = rand(50, 85); s.agility = rand(50, 80); }
-        else if (pos === 'RB') { s.speed = rand(80, 95); s.agility = rand(80, 95); s.strength = rand(60, 85); s.ballSecurity = rand(75, 95); s.catch = rand(50, 80); }
-        else if (pos === 'FB') { s.strength = rand(75, 95); s.blocking = rand(75, 90); s.speed = rand(60, 80); s.ballSecurity = rand(70, 90); }
-        else if (pos === 'WR') { s.speed = rand(85, 99); s.agility = rand(85, 95); s.catch = rand(75, 95); s.routeRunning = rand(75, 95); s.awareness = rand(60, 85); }
-        else if (pos === 'TE') { s.speed = rand(70, 85); s.strength = rand(75, 90); s.catch = rand(70, 90); s.blocking = rand(70, 85); s.routeRunning = rand(65, 85); }
-        else if (pos === 'OL') { s.strength = rand(80, 99); s.blocking = rand(80, 95); s.awareness = rand(70, 90); s.speed = rand(40, 60); s.agility = rand(40, 60); }
-        else if (pos === 'DL') { s.strength = rand(80, 99); s.passRush = rand(75, 95); s.tackling = rand(75, 95); s.speed = rand(50, 75); s.agility = rand(50, 75); }
-        else if (pos === 'LB') { s.strength = rand(70, 90); s.tackling = rand(80, 95); s.passRush = rand(65, 85); s.coverage = rand(60, 85); s.speed = rand(70, 85); s.awareness = rand(70, 90); }
-        else if (pos === 'DB') { s.speed = rand(85, 99); s.agility = rand(85, 95); s.coverage = rand(75, 95); s.tackling = rand(60, 80); s.awareness = rand(70, 90); }
-        else if (pos === 'K' || pos === 'P') { s.passAccuracy = rand(75, 99); s.passPower = rand(75, 99); s.awareness = rand(70, 90); s.speed = rand(40, 60); }
-        return { name: generateName(), af_stats: s };
-      })
-    });
-    const getInitial = (name) => { const initials = name.split(' ').map(w => w[0]).join('').toUpperCase(); return initials.length >= 2 ? initials.substring(0, 3) : name.substring(0, 3).toUpperCase(); };
+  </script>
+</head>
+<body>
 
-    if (type === 'Normal') {
-      for (let c = 0; c < 2; c++) { for (let d = 0; d < 4; d++) { for (let t = 0; t < 4; t++) {
-        const tName = generateTeamName(false); newTeams.push(createTeam(tName, getInitial(tName), ['Conf A', 'Conf B'][c], ['East', 'North', 'South', 'West'][d], c * 16 + d * 4 + t));
-      }}}
-    } else if (type === 'Simple') {
-      for (let c = 0; c < 2; c++) { for (let t = 0; t < 6; t++) {
-        const tName = generateTeamName(false); newTeams.push(createTeam(tName, getInitial(tName), ['Conf A', 'Conf B'][c], 'Div 1', c * 6 + t));
-      }}
-    } else if (type === 'Simple2') {
-      for (let t = 0; t < 9; t++) {
-        const tName = generateTeamName(false); newTeams.push(createTeam(tName, getInitial(tName), 'Conf A', 'Div 1', t));
-      }
-    } else if (type === 'Simple3') {
-      for (let c = 0; c < 2; c++) {
-        const teamCount = c === 0 ? 3 : 4;
-        for (let t = 0; t < teamCount; t++) {
-          const tName = generateTeamName(false); newTeams.push(createTeam(tName, getInitial(tName), ['Conf A', 'Conf B'][c], 'Div 1', newTeams.length));
-        }
-      }
-    } else {
-      for (let i = 0; i < 130; i++) {
-        const tName = generateTeamName(true); newTeams.push(createTeam(tName, getInitial(tName), `Conf ${Math.floor(i/13)+1}`, 'Div 1', i));
-      }
-    }
-    setTeams(newTeams); setHasUnsavedChanges(true); setTeamIdx(0); setPlayerIdx(0);
-    let typeNameJa = type === 'Normal' ? 'ノーマル' : (type === 'NoName' ? 'メガ' : type);
-    if(type === 'Simple3') typeNameJa = 'Simple 1';
-    else if (type === 'Simple2') typeNameJa = 'Simple 2';
-    else if (type === 'Simple') typeNameJa = 'Simple 3';
-    let typeNameEn = type === 'Simple3' ? 'Simple 1' : (type === 'Simple2' ? 'Simple 2' : (type === 'Simple' ? 'Simple 3' : type));
-    setAlertMessage(tTextEdit(`🏈 ${typeNameJa} (${count}チーム) のリーグデータを作成しました！`, `🏈 ¡Datos de la liga ${typeNameEn} (${count} equipos) creados!`, `🏈 ${typeNameEn} (${count} teams) league created!`));
-    if (tutorialStep === 1) {
-      completeTutorialStep(1);
-    }
-  };
+<div class="container">
+  <div class="lang-selector">
+    <button class="lang-btn" data-lang-btn="en" onclick="setLang('en')">English</button>
+    <button class="lang-btn" data-lang-btn="ja" onclick="setLang('ja')">日本語</button>
+    <button class="lang-btn" data-lang-btn="es" onclick="setLang('es')">Español</button>
+  </div>
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', padding: '20px', paddingTop: 'calc(env(safe-area-inset-top) + 20px)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)', backgroundColor: '#0a0a0a', color: '#fff', minHeight: '100vh', fontFamily: 'monospace' }}>
-      <style>{`
-        @keyframes bounce-down { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -10px); } }
-        @keyframes bounce-up { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 10px); } }
-      `}</style>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333', paddingBottom: '10px', marginBottom: '20px', gap: '10px' }}>
-        <h2 style={{ margin: 0, color: '#4CAF50', letterSpacing: '1px', fontSize: 'clamp(14px, 4vw, 24px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMobile ? 'ROSTER EDIT' : 'ROSTER DATA MANAGEMENT'}</h2>
-        <div style={{ display: 'flex', gap: '10px', flexShrink: 0, alignItems: 'center', position: 'relative' }}>
-          {hasUnsavedChanges && <span style={{ color: '#f90', fontSize: '11px', fontFamily: 'monospace', animation: 'pulse 1.5s infinite' }}>{tTextEdit('⚠️未保存', '⚠️Sin guardar', '⚠️Unsaved')}</span>}
-          <button onClick={handleBack} disabled={tutorialStep < 3} style={{ padding: '8px 15px', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '4px', cursor: tutorialStep < 3 ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', opacity: tutorialStep < 3 ? 0.3 : 1 }}>{tTextEdit('戻る', 'ATRÁS', 'BACK')}</button>
-          <div style={{ position: 'relative' }}>
-            {tutorialStep === 2 && (
-              <div style={{ position: 'absolute', bottom: '-40px', left: '50%', transform: 'translateX(-50%)', animation: 'bounce-up 1s infinite', fontSize: '40px', zIndex: 10 }}>👆</div>
-            )}
-            <button onClick={handleSave} style={{ padding: '8px 15px', backgroundColor: '#d22', color: '#fff', border: tutorialStep === 2 ? '2px solid #0cf' : 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>💾 {tTextEdit('セーブ', 'GUARDAR', 'SAVE')}</button>
-          </div>
-        </div>
-      </div>
+  <!-- ==================== ENGLISH ==================== -->
+  <div data-lang-content="en" style="display:none;">
+    <h1>Best Sim Football - Roster Creation Guide</h1>
+    <p>This document is the official guide for creating custom teams and players using the "God Edit" feature or CSV/JSON imports in Best Sim Football.</p>
 
-      {/* タブ切り替え */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #333', paddingBottom: '10px' }}>
-        <button onClick={() => setEditTab('build')} disabled={tutorialStep < 3} style={{ flex: 1, padding: '12px', backgroundColor: editTab === 'build' ? 'rgba(76, 175, 80, 0.2)' : 'transparent', color: editTab === 'build' ? '#4CAF50' : '#888', border: editTab === 'build' ? '1px solid #4CAF50' : '1px solid #333', borderRadius: '8px', fontWeight: 'bold', cursor: tutorialStep < 3 ? 'not-allowed' : 'pointer', transition: 'all 0.2s', fontSize: isMobile ? '12px' : '14px', opacity: (tutorialStep < 3 && editTab !== 'build') ? 0.3 : 1 }}>🏗️ {tTextEdit('構築 ＆ インポート', 'CONSTRUIR E IMPORTAR', 'BUILD & IMPORT')}</button>
-        <button onClick={() => setEditTab('edit')} disabled={tutorialStep < 3} style={{ flex: 1, padding: '12px', backgroundColor: editTab === 'edit' ? 'rgba(0, 204, 255, 0.2)' : 'transparent', color: editTab === 'edit' ? '#0cf' : '#888', border: editTab === 'edit' ? '1px solid #0cf' : '1px solid #333', borderRadius: '8px', fontWeight: 'bold', cursor: tutorialStep < 3 ? 'not-allowed' : 'pointer', transition: 'all 0.2s', fontSize: isMobile ? '12px' : '14px', opacity: (tutorialStep < 3 && editTab !== 'edit') ? 0.3 : 1 }}>🛠️ {tTextEdit('チーム編集 ＆ 出力', 'EDITAR Y EXPORTAR', 'EDIT & EXPORT')}</button>
-      </div>
-
-      {editTab === 'build' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px', animation: 'fadeIn 0.3s ease' }}>
-          <div style={{ backgroundColor: '#111', padding: '20px', borderRadius: '8px', border: '1px solid #333', position: 'relative' }}>
-            {tutorialStep === 1 && (
-               <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', borderRadius: '8px', border: '2px solid #0cf', pointerEvents: 'none', animation: 'pulse 2s infinite' }}></div>
-            )}
-            <h3 style={{ color: '#4CAF50', marginTop: 0, borderBottom: '1px dashed #333', paddingBottom: '10px' }}>{tTextEdit('リーグ生成 (Generate)', 'Generar Liga', 'Generate League')}</h3>
-            {teams && teams.length > 0 && (
-              <p style={{ color: '#aaa', fontSize: '12px', marginBottom: '15px' }}>{tTextEdit('※現在のデータは全て上書きされ、初期化されます。', '* Todos los datos actuales serán sobrescritos.', '* All current data will be overwritten and reset.')}</p>
-            )}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', position: 'relative' }}>
-              <button onClick={() => generateLeague('Simple3')} style={{ flex: isMobile ? '1 1 30%' : 1, minWidth: isMobile ? '0' : '120px', padding: isMobile ? '10px 5px' : '15px', backgroundColor: '#1a1a1a', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: isMobile ? '12px' : '14px' }}>
-                {isMobile ? <>Simple 1<br/>{isJa ? '(7チーム)' : '(7 Teams)'}</> : (isJa ? 'Simple 1 (7チーム)' : 'Simple 1 (7 Teams)')}
-              </button>
-              <button onClick={() => generateLeague('Simple2')} style={{ flex: isMobile ? '1 1 30%' : 1, minWidth: isMobile ? '0' : '120px', padding: isMobile ? '10px 5px' : '15px', backgroundColor: '#1a1a1a', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: isMobile ? '12px' : '14px' }}>
-                {isMobile ? <>Simple 2<br/>{isJa ? '(9チーム)' : '(9 Teams)'}</> : (isJa ? 'Simple 2 (9チーム)' : 'Simple 2 (9 Teams)')}
-              </button>
-              <button onClick={() => generateLeague('Simple')} style={{ flex: isMobile ? '1 1 30%' : 1, minWidth: isMobile ? '0' : '120px', padding: isMobile ? '10px 5px' : '15px', backgroundColor: '#1a1a1a', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: isMobile ? '12px' : '14px' }}>
-                {isMobile ? <>Simple 3<br/>{isJa ? '(12チーム)' : '(12 Teams)'}</> : (isJa ? 'Simple 3 (12チーム)' : 'Simple 3 (12 Teams)')}
-              </button>
-              <button onClick={() => generateLeague('Normal')} style={{ position: 'relative', flex: isMobile ? '1 1 100%' : 1, minWidth: isMobile ? '0' : '120px', padding: '15px', backgroundColor: '#1a1a1a', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
-                {tutorialStep === 1 && (
-                  <span style={{ position: 'absolute', top: '-40px', left: '50%', transform: 'translateX(-50%)', animation: 'bounce-down 1s infinite', fontSize: '40px', zIndex: 10 }}>👇</span>
-                )}
-                {isMobile ? <>Normal<br/>{isJa ? '(32チーム)' : '(32 Teams)'}</> : (isJa ? 'Normal (32チーム)' : 'Normal (32 Teams)')}
-              </button>
-              <button onClick={() => generateLeague('NoName')} style={{ flex: isMobile ? '1 1 100%' : 1, minWidth: isMobile ? '0' : '120px', padding: '15px', backgroundColor: '#1a1a1a', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
-                {isMobile ? <>Mega<br/>{isJa ? '(130チーム)' : '(130 Teams)'}</> : (isJa ? 'Mega (130チーム)' : 'Mega (130 Teams)')}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: '#111', padding: '20px', borderRadius: '8px', border: '1px solid #333' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px dashed #333', paddingBottom: '10px', marginBottom: '15px' }}>
-              <h3 style={{ color: '#0cf', margin: 0 }}>{tTextEdit('データインポート (Import)', 'Importar Datos', 'Data Import')}</h3>
-              <button onClick={() => setShowImportHelp(true)} style={{ background: 'none', border: 'none', color: '#0cf', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }} title="Help">(?) Help</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div>
-                <div style={{ color: '#888', fontSize: '14px', marginBottom: '10px' }}>{tTextEdit('ファイルから読み込む', 'Desde Archivo Local', 'From Local File')}</div>
-                <label style={{ display: 'inline-block', width: '100%', padding: '15px', backgroundColor: 'rgba(221, 34, 34, 0.1)', color: '#f44', border: '1px solid #f44', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', textAlign: 'center', boxSizing: 'border-box' }}>
-                  📥 {tTextEdit('端末のCSV/JSONファイルを選択', 'Seleccionar Archivo (CSV/JSON)', 'Select Local File (CSV/JSON)')} 
-                  <input type="file" accept=".json,.csv,.txt" style={{ display: 'none' }} onChange={handleImportFile} />
-                </label>
-              </div>
-              <div>
-                <div style={{ color: '#888', fontSize: '14px', marginBottom: '10px' }}>{tTextEdit('テキストから読み込む', 'Desde Texto (Pegar)', 'From Text (Direct Paste)')}</div>
-                <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={tTextEdit("ここにCSVやJSONのテキストを貼り付けてください", "Pega el texto CSV o JSON aquí...", "Paste CSV or JSON text here...")} style={{ width: '100%', height: importText ? '150px' : '40px', padding: '10px', backgroundColor: '#000', color: '#fff', border: '1px solid #555', borderRadius: '8px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box', transition: 'height 0.2s' }} />
-                <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                  <button onClick={handlePaste} style={{ flex: 1, padding: '10px', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>📋 {tTextEdit('貼り付け', 'Pegar', 'Paste')}</button>
-                  <button onClick={handleImportTextSubmit} style={{ flex: 2, padding: '10px', backgroundColor: '#0cf', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>🚀 {tTextEdit('インポート実行', 'Ejecutar Importación', 'Execute Import')}</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: '#111', padding: '20px', borderRadius: '8px', border: '1px solid #333' }}>
-            <h3 style={{ color: '#aaa', marginTop: 0, borderBottom: '1px dashed #333', paddingBottom: '10px', fontSize: '16px' }}>{tTextEdit('参考情報：外部リソース', 'Recursos Externos', 'External Resources (Roster Hub)')}</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginBottom: '15px' }}>
-              <a href="https://sportssimdev.github.io/bestsimfootball/roster-guide.html" target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '10px', backgroundColor: '#1a1a1a', border: '1px solid #0cf', borderRadius: '6px', textDecoration: 'none', color: '#fff' }}>
-                <div style={{ fontWeight: 'bold', color: '#0cf', fontSize: '13px', marginBottom: '4px' }}>Roster Guide</div>
-                <div style={{ fontSize: '11px', color: '#ccc' }}>{tTextEdit('選手データ作成ガイドライン', 'Guía de creación de roster', 'Roster creation guidelines')}</div>
-              </a>
-              <a href="https://forums.operationsports.com/" target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '10px', backgroundColor: '#1a1a1a', border: '1px solid #444', borderRadius: '6px', textDecoration: 'none', color: '#fff' }}>
-                <div style={{ fontWeight: 'bold', color: '#0cf', fontSize: '13px', marginBottom: '4px' }}>Operation Sports</div>
-                <div style={{ fontSize: '11px', color: '#888' }}>{isJa ? 'NFL実名ロスターの有志配布掲示板' : 'Community roster sharing forum'}</div>
-              </a>
-              <a href="https://github.com/nflverse/nflverse-data" target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '10px', backgroundColor: '#1a1a1a', border: '1px solid #444', borderRadius: '6px', textDecoration: 'none', color: '#fff' }}>
-                <div style={{ fontWeight: 'bold', color: '#0cf', fontSize: '13px', marginBottom: '4px' }}>nflverse</div>
-                <div style={{ fontSize: '11px', color: '#888' }}>{isJa ? '統計分析用オープンデータ' : 'Open data for analytics'}</div>
-              </a>
-              <a href="https://www.simfba.com/" target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '10px', backgroundColor: '#1a1a1a', border: '1px solid #444', borderRadius: '6px', textDecoration: 'none', color: '#fff' }}>
-                <div style={{ fontWeight: 'bold', color: '#0cf', fontSize: '13px', marginBottom: '4px' }}>SimFBA</div>
-                <div style={{ fontSize: '11px', color: '#888' }}>{isJa ? '架空カレッジ・プロリーグ運営' : 'Fictional college & pro leagues'}</div>
-              </a>
-            </div>
-            <div style={{ fontSize: '10px', color: '#666', lineHeight: '1.4' }}>
-              {isJa ? '[免責事項] 本アプリは汎用的なデータインポート機能を備えたシミュレーターであり、外部データの権利関係について運営者は一切の責任を負いません。' : "[Disclaimer] This app is a simulator. The operator takes no responsibility for the accuracy or rights related to data from external resources."}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editTab === 'edit' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.3s ease', flex: 1, overflow: 'hidden' }}>
-          {isMobile ? (
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', paddingBottom: '10px', flexShrink: 0 }}>
-            <div style={{ width: '50px', color: '#888', fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>TEAM</div>
-            <div style={{ display: 'flex', overflowX: 'auto', gap: '8px', flex: 1, paddingRight: '15px' }}>
-              {teams.map((t, i) => (
-                <button key={i} onClick={() => { setTeamIdx(i); setPlayerIdx(0); }} style={{ flexShrink: 0, padding: '8px 12px', backgroundColor: teamIdx === i ? '#4CAF50' : '#222', color: teamIdx === i ? '#000' : '#fff', border: '1px solid #444', borderRadius: '16px', cursor: 'pointer', fontWeight: teamIdx === i ? 'bold' : 'normal', fontSize: '12px' }}>
-                  {t.name}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid #333', flexShrink: 0 }}>
-            <div style={{ width: '50px', color: '#888', fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>PLAYER</div>
-            <div style={{ display: 'flex', overflowX: 'auto', gap: '8px', flex: 1, paddingRight: '15px' }}>
-              <button onClick={() => setPlayerIdx(-1)} style={{ flexShrink: 0, padding: '8px 12px', backgroundColor: playerIdx === -1 ? '#f90' : '#222', color: playerIdx === -1 ? '#000' : '#fff', border: '1px solid #444', borderRadius: '16px', cursor: 'pointer', fontWeight: playerIdx === -1 ? 'bold' : 'normal', fontSize: '12px' }}>
-                HC
-              </button>
-              {team?.lineup.map((p, i) => (
-                <button key={i} onClick={() => setPlayerIdx(i)} style={{ flexShrink: 0, padding: '8px 12px', backgroundColor: playerIdx === i ? '#0cf' : '#222', color: playerIdx === i ? '#000' : '#fff', border: '1px solid #444', borderRadius: '16px', cursor: 'pointer', fontWeight: playerIdx === i ? 'bold' : 'normal', display: 'flex', gap: '5px', fontSize: '12px' }}>
-                  <span style={{ opacity: 0.7 }}>{p.af_stats?.position}</span>
-                  <span>{p.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ flex: 1, backgroundColor: '#111', borderRadius: '8px', overflowY: 'auto', padding: '15px', border: '1px solid #333' }}>
-            <div style={{ marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px dashed #333' }}>
-              <div style={{ fontSize: '10px', color: '#888', marginBottom: '5px' }}>TEAM NAME & COLOR</div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <input type="text" value={team?.name || ''} onChange={e => updateTeam('name', e.target.value)} style={{ flex: 1, padding: '10px', background: '#000', color: '#0cf', border: '1px solid #555', borderRadius: '4px', fontWeight: 'bold', fontSize: '16px', boxSizing: 'border-box' }} />
-                <input type="color" value={team?.color?.home?.main || '#1a5f9a'} onChange={e => updateTeamColor(e.target.value)} style={{ width: '45px', height: '45px', padding: '0', border: 'none', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'transparent' }} />
-              </div>
-            </div>
-            {playerIdx === -1 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid #333', paddingBottom: '15px' }}>
-                  <div style={{ fontSize: '30px' }}>👔</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: '#f90', fontSize: '12px', fontWeight: 'bold' }}>HEAD COACH</div>
-                    <input type="text" value={team?.manager?.name || ''} onChange={e => updateManager('name', e.target.value)} style={{ width: '100%', maxWidth: '300px', padding: '10px', background: '#000', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '16px', fontWeight: 'bold', marginTop: '5px', boxSizing: 'border-box' }} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
-                  {['inside_run', 'outside_run', 'short_pass', 'deep_pass', 'def_aggressiveness'].map(stat => (
-                    <div key={stat} style={{ display: 'flex', flexDirection: 'column', backgroundColor: '#222', padding: '10px', borderRadius: '8px', gap: '8px', boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#aaa', fontSize: '12px' }}>{stat.toUpperCase()}</span>
-                        <span style={{ color: '#f90', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '16px' }}>{team?.manager?.[stat] ?? 50}</span>
-                      </div>
-                      <input type="range" min="0" max="100" value={team?.manager?.[stat] ?? 50} onChange={e => updateManager(stat, e.target.value)} style={{ width: '100%', cursor: 'pointer', accentColor: '#f90' }} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : player && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid #333', paddingBottom: '15px' }}>
-                  <div style={{ fontSize: '30px' }}>🏈</div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <div style={{ color: '#0cf', fontSize: '12px', fontWeight: 'bold' }}>PLAYER</div>
-                    <div style={{ display: 'flex', gap: '10px', maxWidth: '500px' }}>
-                      <input type="text" value={player.name} onChange={e => updatePlayer('name', e.target.value)} style={{ flex: 2, padding: '10px', background: '#000', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontWeight: 'bold', fontSize: '16px', minWidth: 0, boxSizing: 'border-box' }} />
-                      <select value={player.af_stats?.position || 'N/A'} onChange={e => updatePlayer('position', e.target.value)} style={{ flex: 1, padding: '10px', background: '#000', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '16px', minWidth: 0, boxSizing: 'border-box' }}>
-                        <option value="QB">QB</option><option value="RB">RB</option><option value="FB">FB</option>
-                        <option value="WR">WR</option><option value="TE">TE</option><option value="OL">OL</option>
-                        <option value="DL">DL</option><option value="LB">LB</option><option value="DB">DB</option>
-                        <option value="K">K</option><option value="P">P</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
-                  {['speed', 'strength', 'agility', 'awareness', 'passAccuracy', 'passPower', 'catch', 'routeRunning', 'ballSecurity', 'blocking', 'passRush', 'tackling', 'coverage'].map(stat => (
-                    <div key={stat} style={{ display: 'flex', flexDirection: 'column', backgroundColor: '#222', padding: '10px', borderRadius: '8px', gap: '8px', boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#aaa', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stat.toUpperCase()}</span>
-                        <span style={{ color: '#0f0', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '16px' }}>{player.af_stats?.[stat] ?? 0}</span>
-                      </div>
-                      <input type="range" min="0" max="100" value={player.af_stats?.[stat] ?? 0} onChange={e => updatePlayer(stat, e.target.value)} style={{ width: '100%', cursor: 'pointer', accentColor: '#0f0' }} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          </div>
-          ) : (
-            <div style={{ display: 'flex', gap: '20px', flex: 1, overflow: 'hidden' }}>
-          <div style={{ width: '220px', display: 'flex', flexDirection: 'column', gap: '5px', overflowY: 'auto', border: '1px solid #333', borderRadius: '8px', padding: '10px', backgroundColor: '#111' }}>
-            <h4 style={{ margin: '0 0 10px 0', color: '#888', borderBottom: '1px solid #333', paddingBottom: '5px' }}>TEAM SELECT</h4>
-            {teams.map((t, i) => (
-              <button key={i} onClick={() => { setTeamIdx(i); setPlayerIdx(0); }} style={{ padding: '10px', textAlign: 'left', backgroundColor: teamIdx === i ? '#4CAF50' : 'transparent', color: teamIdx === i ? '#000' : '#fff', border: teamIdx === i ? 'none' : '1px solid #333', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: teamIdx === i ? 'bold' : 'normal' }}>
-                {t.name}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ width: '240px', display: 'flex', flexDirection: 'column', gap: '5px', overflowY: 'auto', border: '1px solid #333', borderRadius: '8px', padding: '10px', backgroundColor: '#111' }}>
-            <div style={{ marginBottom: '15px' }}>
-              <div style={{ fontSize: '10px', color: '#888', marginBottom: '5px' }}>TEAM NAME & COLOR</div>
-              <div style={{ display: 'flex', gap: '5px' }}>
-                <input type="text" value={team?.name || ''} onChange={e => updateTeam('name', e.target.value)} style={{ flex: 1, padding: '8px', background: '#000', color: '#0cf', border: '1px solid #555', borderRadius: '4px', fontWeight: 'bold', boxSizing: 'border-box' }} />
-                <input type="color" value={team?.color?.home?.main || '#1a5f9a'} onChange={e => updateTeamColor(e.target.value)} style={{ width: '35px', height: '35px', padding: '0', border: 'none', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'transparent' }} />
-              </div>
-            </div>
-            <h4 style={{ margin: '0 0 10px 0', color: '#888', borderBottom: '1px solid #333', paddingBottom: '5px' }}>ROSTER</h4>
-            <button onClick={() => setPlayerIdx(-1)} style={{ padding: '10px', textAlign: 'left', backgroundColor: playerIdx === -1 ? '#f90' : '#222', color: playerIdx === -1 ? '#000' : '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', marginBottom: '5px' }}>
-              <span>HEAD COACH</span>
-              <span style={{ opacity: 0.7 }}>HC</span>
-            </button>
-            {team?.lineup.map((p, i) => (
-              <button key={i} onClick={() => setPlayerIdx(i)} style={{ padding: '8px 10px', textAlign: 'left', backgroundColor: playerIdx === i ? '#0cf' : 'transparent', color: playerIdx === i ? '#000' : '#fff', border: playerIdx === i ? 'none' : '1px solid #333', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</span>
-                <span style={{ fontSize: '11px', opacity: playerIdx === i ? 0.7 : 0.5, marginLeft: '10px', width: '30px', textAlign: 'right' }}>{p.af_stats?.position || 'N/A'}</span>
-              </button>
-            ))}
-          </div>
-
-          <div style={{ flex: 1, padding: '20px', backgroundColor: '#111', borderRadius: '8px', border: '1px solid #333', overflowY: 'auto' }}>
-            {playerIdx === -1 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid #333', paddingBottom: '15px' }}>
-                  <div style={{ fontSize: '30px' }}>👔</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: '#f90', fontSize: '12px', fontWeight: 'bold' }}>HEAD COACH</div>
-                    <input type="text" value={team?.manager?.name || ''} onChange={e => updateManager('name', e.target.value)} style={{ width: '100%', maxWidth: '300px', padding: '10px', background: '#000', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '16px', fontWeight: 'bold', marginTop: '5px', boxSizing: 'border-box' }} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
-                  {['inside_run', 'outside_run', 'short_pass', 'deep_pass', 'def_aggressiveness'].map(stat => (
-                    <div key={stat} style={{ display: 'flex', flexDirection: 'column', backgroundColor: '#222', padding: '10px', borderRadius: '8px', gap: '8px', boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#aaa', fontSize: '12px' }}>{stat.toUpperCase()}</span>
-                        <span style={{ color: '#f90', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '16px' }}>{team?.manager?.[stat] ?? 50}</span>
-                      </div>
-                      <input type="range" min="0" max="100" value={team?.manager?.[stat] ?? 50} onChange={e => updateManager(stat, e.target.value)} style={{ width: '100%', cursor: 'pointer', accentColor: '#f90' }} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : player && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', borderBottom: '1px solid #333', paddingBottom: '15px' }}>
-                  <div style={{ fontSize: '30px' }}>🏈</div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <div style={{ color: '#0cf', fontSize: '12px', fontWeight: 'bold' }}>PLAYER</div>
-                    <div style={{ display: 'flex', gap: '10px', maxWidth: '500px' }}>
-                      <input type="text" value={player.name} onChange={e => updatePlayer('name', e.target.value)} style={{ flex: 2, padding: '10px', background: '#000', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontWeight: 'bold', fontSize: '16px', minWidth: 0, boxSizing: 'border-box' }} />
-                      <select value={player.af_stats?.position || 'N/A'} onChange={e => updatePlayer('position', e.target.value)} style={{ flex: 1, padding: '10px', background: '#000', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '16px', minWidth: 0, boxSizing: 'border-box' }}>
-                        <option value="QB">QB</option><option value="RB">RB</option><option value="FB">FB</option>
-                        <option value="WR">WR</option><option value="TE">TE</option><option value="OL">OL</option>
-                        <option value="DL">DL</option><option value="LB">LB</option><option value="DB">DB</option>
-                        <option value="K">K</option><option value="P">P</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
-                  {['speed', 'strength', 'agility', 'awareness', 'passAccuracy', 'passPower', 'catch', 'routeRunning', 'ballSecurity', 'blocking', 'passRush', 'tackling', 'coverage'].map(stat => (
-                    <div key={stat} style={{ display: 'flex', flexDirection: 'column', backgroundColor: '#222', padding: '10px', borderRadius: '8px', gap: '8px', boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#aaa', fontSize: '12px' }}>{stat.toUpperCase()}</span>
-                        <span style={{ color: '#0f0', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '16px' }}>{player.af_stats?.[stat] ?? 0}</span>
-                      </div>
-                      <input type="range" min="0" max="100" value={player.af_stats?.[stat] ?? 0} onChange={e => updatePlayer(stat, e.target.value)} style={{ width: '100%', cursor: 'pointer', accentColor: '#0f0' }} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            </div>
-          </div>
-          )}
-
-          <div style={{ backgroundColor: '#111', padding: '20px', borderRadius: '8px', border: '1px solid #333', marginTop: '10px' }}>
-            <h3 style={{ color: '#0cf', marginTop: 0, borderBottom: '1px dashed #333', paddingBottom: '10px' }}>{tTextEdit('データ出力 (Export)', 'Exportar Datos', 'Data Export')}</h3>
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '10px', alignItems: isMobile ? 'stretch' : 'center' }}>
-              <div style={{ color: '#888', fontSize: '14px', width: isMobile ? '100%' : '100px' }}>{tTextEdit('フォーマット:', 'Formato:', 'Format:')}</div>
-              <div style={{ display: 'flex', gap: '10px', flex: 1 }}>
-                <select value={exportFormat} onChange={e => setExportFormat(e.target.value)} style={{ width: '100px', padding: '12px', backgroundColor: '#1a1a1a', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontFamily: 'monospace', fontSize: '14px' }}>
-                  <option value="txt">TXT</option>
-                  <option value="json">JSON</option>
-                  <option value="csv">CSV</option>
-                </select>
-                <button onClick={() => handleExport(teams, exportFormat)} style={{ flex: 1, padding: '12px', backgroundColor: 'rgba(76, 175, 80, 0.1)', color: '#4CAF50', border: '1px solid #4CAF50', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', fontSize: '16px' }}>
-                  📤 {tTextEdit('ファイル保存 / 共有', 'Guardar / Compartir', 'Save / Share')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {confirmModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
-          <div style={{ backgroundColor: '#222', padding: '20px', borderRadius: '8px', border: '1px solid #0cf', width: '300px', textAlign: 'center' }}>
-            <h3 style={{ color: '#0cf', marginTop: 0, letterSpacing: '2px' }}>{tTextEdit('ℹ️ 確認', 'ℹ️ CONFIRMACIÓN', 'ℹ️ CONFIRMATION')}</h3>
-            <p style={{ color: '#fff', fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
-              {tTextEdit(`${confirmModal === 'Simple3' ? 'Simple 1' : confirmModal === 'Simple2' ? 'Simple 2' : confirmModal === 'Simple' ? 'Simple 3' : confirmModal === 'Normal' ? 'ノーマル' : 'メガリーグ'} のリーグ構成を生成します。\n${teams && teams.length > 0 ? '現在のデータは全て上書きされます。\n' : ''}よろしいですか？`, `Se generará la liga de tipo ${confirmModal === 'Simple3' ? 'Simple 1' : confirmModal === 'Simple2' ? 'Simple 2' : confirmModal === 'Simple' ? 'Simple 3' : confirmModal === 'Normal' ? 'Normal' : 'Mega'}.\n${teams && teams.length > 0 ? 'Todos los datos actuales serán sobrescritos.\n' : ''}¿Estás seguro?`, `Generate ${confirmModal === 'Simple3' ? 'Simple 1' : confirmModal === 'Simple2' ? 'Simple 2' : confirmModal === 'Simple' ? 'Simple 3' : confirmModal === 'Normal' ? 'Normal' : 'Mega'} league data.\n${teams && teams.length > 0 ? 'All current data will be overwritten.\n' : ''}Are you sure?`)}
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: '20px' }}>
-              <button onClick={() => setConfirmModal(null)} style={{ padding: '10px 20px', backgroundColor: '#555', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>{tTextEdit('キャンセル', 'CANCELAR', 'CANCEL')}</button>
-              <button onClick={confirmGenerateLeague} style={{ padding: '10px 20px', backgroundColor: '#0cf', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>{tTextEdit('生成する', 'GENERAR', 'GENERATE')}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {alertMessage && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
-          <div style={{ backgroundColor: '#222', padding: '25px', borderRadius: '8px', border: '1px solid #4CAF50', width: '300px', textAlign: 'center' }}>
-            <h3 style={{ color: '#4CAF50', marginTop: 0, letterSpacing: '1px' }}>SYSTEM MESSAGE</h3>
-            <p style={{ color: '#fff', fontSize: '15px', lineHeight: '1.6' }}>{alertMessage}</p>
-            <button onClick={() => setAlertMessage('')} style={{ padding: '10px 40px', backgroundColor: '#4CAF50', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', marginTop: '15px', fontSize: '16px' }}>OK</button>
-          </div>
-        </div>
-      )}
-
-      {showImportHelp && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000 }}>
-          <div style={{ backgroundColor: '#1a1a1a', padding: '25px', borderRadius: '8px', border: '1px solid #0cf', width: '90%', maxWidth: '340px', color: '#fff' }}>
-            <h3 style={{ color: '#0cf', marginTop: 0, letterSpacing: '1px', borderBottom: '1px solid #333', paddingBottom: '10px' }}>{isJa ? 'インポートガイド' : 'Import Guide'}</h3>
-            <ol style={{ paddingLeft: '20px', fontSize: '14px', lineHeight: '1.6', color: '#ccc', margin: '20px 0' }}>
-              <li style={{ marginBottom: '10px' }}>{isJa ? '外部サイト（下記リンク参照）等でロースターのCSVファイルを端末に保存します。' : 'Save a roster CSV file to your device from external sites.'}</li>
-              <li style={{ marginBottom: '10px' }}>{isJa ? 'iOSの「ファイル」アプリやAndroidの「ダウンロード」フォルダにあることを確認します。' : 'Ensure it is in your iOS "Files" or Android "Downloads" folder.'}</li>
-              <li>{isJa ? '「📥 端末のCSV/JSONファイルを選択」からそのファイルを選ぶか、中身のテキストをコピーして「📋 貼り付け」します。' : 'Use "Select Local File" or copy the text and use "Paste".'}</li>
-            </ol>
-            <div style={{ marginTop: '20px', textAlign: 'center' }}>
-              <button onClick={() => setShowImportHelp(false)} style={{ padding: '10px 40px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>{isJa ? '閉じる' : 'CLOSE'}</button>
-            </div>
-          </div>
-        </div>
-      )}
+    <div class="note">
+      <strong>💡 Tip:</strong> Creating a CSV from scratch is tough. We recommend exporting a CSV from the app, editing it in Excel or Google Sheets, and importing it back.
     </div>
-  );
-};
+
+    <h2>1. OVR (Overall Rating) Standards</h2>
+    <p>The game's simulation engine calculates win probabilities and play outcomes based on very fine attribute differences. Please set ratings (0-100) using these guidelines:</p>
+    <table>
+      <tr><th style="width: 20%;">Range</th><th>Description</th></tr>
+      <tr><td><strong>90 - 99</strong></td><td><span class="badge bg-blue">Superstar</span> A league-leading player capable of taking over a game.</td></tr>
+      <tr><td><strong>80 - 89</strong></td><td><span class="badge bg-green">Solid Starter</span> A highly reliable core player.</td></tr>
+      <tr><td><strong>70 - 79</strong></td><td><span class="badge bg-orange">Average Starter</span> or premium backup. Dependable despite occasional mistakes.</td></tr>
+      <tr><td><strong>60 - 69</strong></td><td>Backup level. Often targeted as a weakness.</td></tr>
+      <tr><td><strong>50 - 59</strong></td><td>Severe weakness, or a player playing completely out of position.</td></tr>
+    </table>
+
+    <h2>2. Player Attributes</h2>
+    <p>Each player has 13 attributes. The most important attributes vary by position.</p>
+    <table>
+      <tr><th style="width: 15%;">Abbr</th><th style="width: 20%;">Name</th><th>Impact & Role</th></tr>
+      <tr><td><code>SPD</code></td><td>Speed</td><td>Sprint speed. Crucial for RB breakaways, WR deep routes, and DB coverage tracking.</td></tr>
+      <tr><td><code>STR</code></td><td>Strength</td><td>Physical power. Affects OL/DL line battles, RB broken tackles, and TE blocking.</td></tr>
+      <tr><td><code>AGI</code></td><td>Agility</td><td>Quickness and cutting. Affects RB jukes and WR route running sharpness.</td></tr>
+      <tr><td><code>AWR</code></td><td>Awareness</td><td>Tactical IQ. Crucial for QB pocket presence, DB interceptions, and LB run stopping.</td></tr>
+      <tr><td><code>THA</code></td><td>Pass Accuracy</td><td>QB only. Direct impact on pass completion rate.</td></tr>
+      <tr><td><code>THP</code></td><td>Pass Power</td><td>QB/K/P only. Affects deep pass success, as well as kick and punt distances.</td></tr>
+      <tr><td><code>CTH</code></td><td>Catch</td><td>WR/TE/RB receiving ability. Low catch leads to drops.</td></tr>
+      <tr><td><code>RTE</code></td><td>Route Running</td><td>WR/TE ability to beat man coverage. Contested against DB's COV.</td></tr>
+      <tr><td><code>SEC</code></td><td>Ball Security</td><td>RB/Receiver fumble avoidance.</td></tr>
+      <tr><td><code>BLK</code></td><td>Blocking</td><td>OL pass/run blocking, TE/FB blocking. Contested against DL's RSH.</td></tr>
+      <tr><td><code>RSH</code></td><td>Pass Rush</td><td>DL/LB block shedding. Directly impacts sack and pressure rates.</td></tr>
+      <tr><td><code>TKL</code></td><td>Tackling</td><td>LB/DB/DL tackling ability. Crucial for run stops and limiting Yards After Catch (YAC).</td></tr>
+      <tr><td><code>COV</code></td><td>Coverage</td><td>DB/LB pass defense. Key to preventing completions and grabbing INTs.</td></tr>
+    </table>
+
+    <h3>Key Attributes by Position</h3>
+    <ul>
+      <li><strong>QB</strong>: <code>THA</code>, <code>THP</code>, <code>AWR</code> are crucial. Add <code>SPD</code> and <code>AGI</code> for mobile QBs.</li>
+      <li><strong>RB</strong>: <code>SPD</code>, <code>STR</code>, <code>AGI</code> are key. Low <code>SEC</code> risks fumbles.</li>
+      <li><strong>WR / TE</strong>: <code>SPD</code>, <code>CTH</code>, <code>RTE</code>. TEs also require <code>STR</code> and <code>BLK</code>.</li>
+      <li><strong>OL</strong>: <code>STR</code> and <code>BLK</code> are everything.</li>
+      <li><strong>DL / LB</strong>: <code>RSH</code>, <code>TKL</code>, <code>STR</code>. LBs also need <code>COV</code> for pass defense.</li>
+      <li><strong>DB</strong>: <code>SPD</code>, <code>COV</code>, <code>AWR</code> are crucial.</li>
+      <li><strong>K / P</strong>: Only <code>THP</code> (Distance) and <code>THA</code> (Accuracy) matter.</li>
+    </ul>
+
+    <h2>3. Manager (Team Tendency) Attributes</h2>
+    <p>Defines how the AI calls plays. Represented as the "Manager" row in CSVs.</p>
+    <table>
+      <tr><th style="width: 25%;">Name</th><th>Meaning</th></tr>
+      <tr><td><strong>Inside Run</strong></td><td>Frequency and skill in calling inside runs.</td></tr>
+      <tr><td><strong>Outside Run</strong></td><td>Frequency and skill in calling outside runs (tosses, etc.).</td></tr>
+      <tr><td><strong>Short Pass</strong></td><td>Frequency and skill in calling short passes.</td></tr>
+      <tr><td><strong>Deep Pass</strong></td><td>Frequency and skill in calling deep passes. High values lead to aggressive playcalling.</td></tr>
+      <tr><td><strong>Def Aggressiveness</strong></td><td>Blitz tendency. Higher values mean more blitzes; lower values lean towards zone coverage.</td></tr>
+    </table>
+
+    <h2>4. CSV Format Specification</h2>
+    <p>This is the CSV column structure exported from the app. Please follow this format when editing.</p>
+    <pre>
+Team,Initial,Conf,Div,Type,Name,Pos,Speed_InsideRun,Strength_OutsideRun,Agility_ShortPass,Awareness_DeepPass,PassAcc_DefAgg,PassPow,Catch,Route,BallSec,Block,Rush,Tackle,Cov
+"Team A","TMA","Conf 1","Div 1","Manager","Coach Smith","HC",50,50,50,50,50,0,0,0,0,0,0,0,0
+"Team A","TMA","Conf 1","Div 1","Player","John Doe","QB",70,60,70,85,88,90,30,30,65,30,30,30,30
+"Team A","TMA","Conf 1","Div 1","Player","Jane Doe","RB",92,85,90,75,30,30,70,60,85,50,30,30,30
+...
+    </pre>
+    <div class="note">
+      <strong>⚠️ Notes on CSV Creation:</strong><br>
+      - Use <code>Manager</code> for coaches and <code>Player</code> for players in the <code>Type</code> column.<br>
+      - For Manager rows, the player attribute columns (Speed to PassAcc) map to Manager tendencies (InsideRun to DefAgg). The rest can be 0.<br>
+      - <code>Pos</code> must be one of: QB, RB, FB, WR, TE, OL, DL, LB, DB, K, P.
+    </div>
+
+    <h2>5. Auto-Substitution & Rotation</h2>
+    <p>The game simulates "Fatigue". Since high fatigue drastically reduces performance, the AI automatically rotates players. <strong>We strongly recommend having enough backup players for each position.</strong></p>
+    <ul>
+      <li><strong>Base Starters</strong>: QB(1), RB(1), WR(3), TE(2), OL(5), DL(4), LB(3), DB(4)</li>
+      <li>If a team lacks backups at a specific position, players from other positions will be forced to play out of position, suffering massive attribute penalties.</li>
+    </ul>
+  </div>
+
+  <!-- ==================== JAPANESE ==================== -->
+  <div data-lang-content="ja" style="display:none;">
+    <h1>Best Sim Football - ロースター作成ガイドライン</h1>
+    <p>本ドキュメントは、「Best Sim Football」の神エディット機能やCSV/JSONインポート機能を用いて、オリジナルのチームや選手データを作成するための公式ガイドラインです。</p>
+
+    <div class="note">
+      <strong>💡 ヒント：</strong> いちからCSVを作るのは大変なので、まずはアプリ内から「CSV」形式でエクスポートし、そのファイルをExcelやGoogleスプレッドシートで開いて編集（上書き）してインポートし直す方法をおすすめします。
+    </div>
+
+    <h2>1. 能力値（OVR）の基準</h2>
+    <p>本ゲームのシミュレーションエンジンは、非常に繊細な能力差を計算して勝率やプレイの成否を導き出します。以下の基準（0〜100）に沿って数値を設定してください。</p>
+    <table>
+      <tr><th style="width: 20%;">数値の範囲</th><th>レベルの目安</th></tr>
+      <tr><td><strong>90 〜 99</strong></td><td><span class="badge bg-blue">超一流</span> リーグを代表するスター選手。試合を一人で破壊できるレベル。</td></tr>
+      <tr><td><strong>80 〜 89</strong></td><td><span class="badge bg-green">優秀なスタメン</span> チームの主力として信頼できる安定した実力。</td></tr>
+      <tr><td><strong>70 〜 79</strong></td><td><span class="badge bg-orange">平均的なスタメン</span> または優秀な控え。時折ミスもするが計算はできる。</td></tr>
+      <tr><td><strong>60 〜 69</strong></td><td>控え選手レベル。狙われると弱点になることが多い。</td></tr>
+      <tr><td><strong>50 〜 59</strong></td><td>明確な弱点、または本来のポジションではない（コンバート）レベル。</td></tr>
+    </table>
+
+    <h2>2. 選手パラメータ（Attributes）解説</h2>
+    <p>選手の能力は以下の13項目で構成されています。ポジションによって「どの能力が重要か」が異なります。</p>
+    <table>
+      <tr><th style="width: 15%;">略称</th><th style="width: 20%;">項目名</th><th>影響と役割</th></tr>
+      <tr><td><code>SPD</code></td><td>Speed<br>(スピード)</td><td>走力。RBの独走、WRの奥への抜け出し、DBのパスカバー追従に影響します。</td></tr>
+      <tr><td><code>STR</code></td><td>Strength<br>(パワー)</td><td>筋力。OL/DLのライン戦（押し合い）、RBのタックル突破、TEのブロックに影響します。</td></tr>
+      <tr><td><code>AGI</code></td><td>Agility<br>(敏捷性)</td><td>カットの鋭さ。RBの細かいステップや、WRのルートのキレに影響します。</td></tr>
+      <tr><td><code>AWR</code></td><td>Awareness<br>(判断力)</td><td>戦術理解と反応速度。QBのプレッシャー回避、DBのインターセプト、LBのランストップ反応など「賢さ」全般に強く影響します。</td></tr>
+      <tr><td><code>THA</code></td><td>Pass Accuracy<br>(パス精度)</td><td>QB専用。パスの正確さに直結します。低いとインコンプリート（精度不良）が増えます。</td></tr>
+      <tr><td><code>THP</code></td><td>Pass Power<br>(パス肩力)</td><td>QB/K/P専用。QBのロングパス成功率と球速に影響します。キッカーやパンターの「飛距離」もこの数値に依存します。</td></tr>
+      <tr><td><code>CTH</code></td><td>Catch<br>(捕球力)</td><td>WR/TE/RBのパスレシーブ成功率。低いと「落球（Drop）」が発生しやすくなります。</td></tr>
+      <tr><td><code>RTE</code></td><td>Route Running<br>(ルート取り)</td><td>WR/TEのマークを振り切る力。相手のCOV（カバレッジ）との勝負判定に使われます。</td></tr>
+      <tr><td><code>SEC</code></td><td>Ball Security<br>(ボール保持)</td><td>RBやレシーバーのファンブル（ボールをこぼす）回避率に影響します。</td></tr>
+      <tr><td><code>BLK</code></td><td>Blocking<br>(ブロック)</td><td>OLのパスプロテクト/ランブロック、TE/FBのブロック力。DLのパスラッシュ(RSH)と対決します。</td></tr>
+      <tr><td><code>RSH</code></td><td>Pass Rush<br>(パスラッシュ)</td><td>DL/LBの突破力。サックやプレッシャー（QBを急らす）の発生率に直結します。</td></tr>
+      <tr><td><code>TKL</code></td><td>Tackling<br>(タックル)</td><td>LB/DB/DLの守備力。ランストップや、パス成功後のYAC（キャッチ後のラン）の阻止に影響します。</td></tr>
+      <tr><td><code>COV</code></td><td>Coverage<br>(パスカバー)</td><td>DB/LBのパス阻止能力。パスの成功率を下げたり、インターセプトを引き起こす鍵となります。</td></tr>
+    </table>
+
+    <h3>ポジション別・必須パラメータの目安</h3>
+    <ul>
+      <li><strong>QB (クォーターバック)</strong>: <code>THA</code>, <code>THP</code>, <code>AWR</code> が最重要。走れるQBにする場合は <code>SPD</code>, <code>AGI</code> も高くします。</li>
+      <li><strong>RB (ランニングバック)</strong>: <code>SPD</code>, <code>STR</code>, <code>AGI</code> が重要。<code>SEC</code> が低いとファンブルの危険大。</li>
+      <li><strong>WR / TE (レシーバー)</strong>: <code>SPD</code>, <code>CTH</code>, <code>RTE</code> が重要。TEは <code>STR</code> と <code>BLK</code> も求められます。</li>
+      <li><strong>OL (オフェンシブライン)</strong>: <code>STR</code> と <code>BLK</code> が全てです。</li>
+      <li><strong>DL / LB (フロントセブン)</strong>: <code>RSH</code>, <code>TKL</code>, <code>STR</code> が重要。LBはパス守備のための <code>COV</code> も必要です。</li>
+      <li><strong>DB (ディフェンシブバック)</strong>: <code>SPD</code>, <code>COV</code>, <code>AWR</code> が重要。</li>
+      <li><strong>K / P (キッカー類)</strong>: <code>THP</code> (飛距離) と <code>THA</code> (精度) だけで計算されます。</li>
+    </ul>
+
+    <h2>3. 監督（チーム傾向）パラメータ解説</h2>
+    <p>AIがプレイを選択する際の傾向を定義します。CSV上では「Manager」行として表現されます。</p>
+    <table>
+      <tr><th style="width: 25%;">項目名</th><th>意味と挙動</th></tr>
+      <tr><td><strong>Inside Run</strong></td><td>中央ラン（ダイブ等）のコール頻度と得意度。</td></tr>
+      <tr><td><strong>Outside Run</strong></td><td>外側ラン（トス等）のコール頻度と得意度。</td></tr>
+      <tr><td><strong>Short Pass</strong></td><td>ショートパスのコール頻度と得意度。</td></tr>
+      <tr><td><strong>Deep Pass</strong></td><td>ロングパス（ディープ）のコール頻度と得意度。一発逆転を狙いやすくなります。</td></tr>
+      <tr><td><strong>Def Aggressiveness</strong></td><td>守備のアグレッシブさ。数値が高いほどブリッツ（QB強襲）を多用し、低いほどゾーンで引いて守る傾向になります。</td></tr>
+    </table>
+
+    <h2>4. CSVファイルのフォーマット仕様</h2>
+    <p>アプリからエクスポートされるCSVの列構成は以下の通りです。この形式に合わせてExcel等で作成してください。</p>
+    <pre>
+Team,Initial,Conf,Div,Type,Name,Pos,Speed_InsideRun,Strength_OutsideRun,Agility_ShortPass,Awareness_DeepPass,PassAcc_DefAgg,PassPow,Catch,Route,BallSec,Block,Rush,Tackle,Cov
+"Team A","TMA","Conf 1","Div 1","Manager","Coach Smith","HC",50,50,50,50,50,0,0,0,0,0,0,0,0
+"Team A","TMA","Conf 1","Div 1","Player","John Doe","QB",70,60,70,85,88,90,30,30,65,30,30,30,30
+"Team A","TMA","Conf 1","Div 1","Player","Jane Doe","RB",92,85,90,75,30,30,70,60,85,50,30,30,30
+...
+    </pre>
+    <div class="note">
+      <strong>⚠️ CSV作成時の注意点：</strong><br>
+      ・<code>Type</code> 列には、監督の場合は <code>Manager</code>、選手の場合は <code>Player</code> と入力してください。<br>
+      ・監督（Manager）行の場合、選手の能力値の列がそのまま監督の傾向パラメータ（InsideRun〜DefAgg）として解釈されます。後半の列（PassPow以降）は 0 で構いません。<br>
+      ・<code>Pos</code>（ポジション）は、QB, RB, FB, WR, TE, OL, DL, LB, DB, K, P のいずれかを使用してください。
+    </div>
+
+    <h2>5. 自動交代（ローテーション）について</h2>
+    <p>本ゲームは選手の「疲労（Fatigue）」をシミュレートしています。疲労が蓄積するとパフォーマンスが劇的に低下するため、AIは以下の基準で自動的に選手をローテーション（交代）させます。ロースター作成時は<strong>各ポジションに十分な数の控え選手</strong>を用意しておくことを強く推奨します。</p>
+    <ul>
+      <li><strong>スタメンの基本人数</strong>: QB(1), RB(1), WR(3), TE(2), OL(5), DL(4), LB(3), DB(4)</li>
+      <li>控えが不足している場合、他のポジションから無理やりコンバートされて出場し、大幅な能力ペナルティを受けます。（例: WRが不足してTEがWRに入るなど）</li>
+    </ul>
+  </div>
+
+  <!-- ==================== SPANISH ==================== -->
+  <div data-lang-content="es" style="display:none;">
+    <h1>Best Sim Football - Guía de Creación de Roster</h1>
+    <p>Este documento es la guía oficial para crear equipos y jugadores personalizados mediante el modo "God Edit" o importaciones CSV/JSON en Best Sim Football.</p>
+
+    <div class="note">
+      <strong>💡 Consejo:</strong> Crear un CSV desde cero es difícil. Recomendamos exportar un CSV desde la aplicación, editarlo en Excel o Google Sheets, y volver a importarlo.
+    </div>
+
+    <h2>1. Estándares de OVR (Valoración General)</h2>
+    <p>El motor de simulación calcula las probabilidades de victoria basándose en diferencias muy finas de atributos. Asigna valoraciones (0-100) según estas pautas:</p>
+    <table>
+      <tr><th style="width: 20%;">Rango</th><th>Descripción</th></tr>
+      <tr><td><strong>90 - 99</strong></td><td><span class="badge bg-blue">Superestrella</span> Jugador élite capaz de dominar un partido.</td></tr>
+      <tr><td><strong>80 - 89</strong></td><td><span class="badge bg-green">Titular Sólido</span> Un jugador clave y muy fiable.</td></tr>
+      <tr><td><strong>70 - 79</strong></td><td><span class="badge bg-orange">Titular Promedio</span> o buen suplente. Fiable a pesar de errores ocasionales.</td></tr>
+      <tr><td><strong>60 - 69</strong></td><td>Nivel suplente. A menudo es el punto débil explotado por el rival.</td></tr>
+      <tr><td><strong>50 - 59</strong></td><td>Gran debilidad o jugador jugando totalmente fuera de posición.</td></tr>
+    </table>
+
+    <h2>2. Atributos del Jugador</h2>
+    <p>Cada jugador tiene 13 atributos. Los más importantes varían según la posición.</p>
+    <table>
+      <tr><th style="width: 15%;">Abrv</th><th style="width: 20%;">Nombre</th><th>Impacto y Rol</th></tr>
+      <tr><td><code>SPD</code></td><td>Speed (Velocidad)</td><td>Velocidad de carrera. Crucial para escapadas de RB, rutas profundas de WR y cobertura de DB.</td></tr>
+      <tr><td><code>STR</code></td><td>Strength (Fuerza)</td><td>Poder físico. Afecta las batallas en la línea (OL/DL), rompimiento de tackles (RB) y bloqueos (TE).</td></tr>
+      <tr><td><code>AGI</code></td><td>Agility (Agilidad)</td><td>Rapidez de corte. Afecta los regates del RB y la precisión de las rutas del WR.</td></tr>
+      <tr><td><code>AWR</code></td><td>Awareness (Conciencia)</td><td>IQ Táctico. Vital para la presencia del QB, intercepciones del DB y paradas terrestres del LB.</td></tr>
+      <tr><td><code>THA</code></td><td>Pass Accuracy (Precisión)</td><td>Solo QB. Impacto directo en el porcentaje de pases completos.</td></tr>
+      <tr><td><code>THP</code></td><td>Pass Power (Potencia)</td><td>Solo QB/K/P. Afecta el éxito del pase profundo y la distancia de las patadas.</td></tr>
+      <tr><td><code>CTH</code></td><td>Catch (Atrape)</td><td>Capacidad de recepción. Un valor bajo provoca caídas de balón (Drops).</td></tr>
+      <tr><td><code>RTE</code></td><td>Route Running (Rutas)</td><td>Habilidad para desmarcarse. Se enfrenta directamente a la cobertura (COV) del DB.</td></tr>
+      <tr><td><code>SEC</code></td><td>Ball Security (Seguridad)</td><td>Evitar fumbles (pérdidas de balón) para corredores y receptores.</td></tr>
+      <tr><td><code>BLK</code></td><td>Blocking (Bloqueo)</td><td>Bloqueo de pase/carrera para OL, y bloqueos para TE/FB.</td></tr>
+      <tr><td><code>RSH</code></td><td>Pass Rush</td><td>Penetración de línea para DL/LB. Impacta directamente en sacks y presiones.</td></tr>
+      <tr><td><code>TKL</code></td><td>Tackling (Placaje)</td><td>Habilidad de derribo. Detiene la carrera y limita las yardas tras recepción (YAC).</td></tr>
+      <tr><td><code>COV</code></td><td>Coverage (Cobertura)</td><td>Defensa de pase. Clave para evitar recepciones y conseguir intercepciones.</td></tr>
+    </table>
+
+    <h3>Atributos Clave por Posición</h3>
+    <ul>
+      <li><strong>QB</strong>: <code>THA</code>, <code>THP</code>, <code>AWR</code>. (Agrega <code>SPD</code>, <code>AGI</code> para QBs móviles).</li>
+      <li><strong>RB</strong>: <code>SPD</code>, <code>STR</code>, <code>AGI</code>. (Poco <code>SEC</code> causa fumbles).</li>
+      <li><strong>WR / TE</strong>: <code>SPD</code>, <code>CTH</code>, <code>RTE</code>. Los TE también necesitan <code>STR</code> y <code>BLK</code>.</li>
+      <li><strong>OL</strong>: <code>STR</code> y <code>BLK</code> lo son todo.</li>
+      <li><strong>DL / LB</strong>: <code>RSH</code>, <code>TKL</code>, <code>STR</code>. Los LB también necesitan <code>COV</code>.</li>
+      <li><strong>DB</strong>: <code>SPD</code>, <code>COV</code>, <code>AWR</code>.</li>
+      <li><strong>K / P</strong>: Solo importan <code>THP</code> (Distancia) y <code>THA</code> (Precisión).</li>
+    </ul>
+
+    <h2>3. Atributos del Entrenador (Tendencias)</h2>
+    <p>Define cómo la IA elige las jugadas. Representado como la fila "Manager" en los CSVs.</p>
+    <table>
+      <tr><th style="width: 25%;">Nombre</th><th>Significado</th></tr>
+      <tr><td><strong>Inside Run</strong></td><td>Frecuencia y habilidad para carreras por el centro.</td></tr>
+      <tr><td><strong>Outside Run</strong></td><td>Frecuencia y habilidad para carreras exteriores.</td></tr>
+      <tr><td><strong>Short Pass</strong></td><td>Frecuencia y habilidad para pases cortos.</td></tr>
+      <tr><td><strong>Deep Pass</strong></td><td>Frecuencia para pases profundos. Valores altos generan un estilo agresivo.</td></tr>
+      <tr><td><strong>Def Aggressiveness</strong></td><td>Tendencia al Blitz. Alto = Muchos blitzes; Bajo = Defensas en zona conservadoras.</td></tr>
+    </table>
+
+    <h2>4. Especificaciones del Formato CSV</h2>
+    <p>Esta es la estructura de columnas del CSV exportado desde la aplicación. Por favor, sigue este formato al editar.</p>
+    <pre>
+Team,Initial,Conf,Div,Type,Name,Pos,Speed_InsideRun,Strength_OutsideRun,Agility_ShortPass,Awareness_DeepPass,PassAcc_DefAgg,PassPow,Catch,Route,BallSec,Block,Rush,Tackle,Cov
+"Team A","TMA","Conf 1","Div 1","Manager","Coach Smith","HC",50,50,50,50,50,0,0,0,0,0,0,0,0
+"Team A","TMA","Conf 1","Div 1","Player","John Doe","QB",70,60,70,85,88,90,30,30,65,30,30,30,30
+"Team A","TMA","Conf 1","Div 1","Player","Jane Doe","RB",92,85,90,75,30,30,70,60,85,50,30,30,30
+...
+    </pre>
+    <div class="note">
+      <strong>⚠️ Notas sobre la creación del CSV:</strong><br>
+      - Usa <code>Manager</code> para entrenadores y <code>Player</code> para jugadores en la columna <code>Type</code>.<br>
+      - Para la fila del Entrenador (Manager), las columnas de atributos (Speed a PassAcc) se interpretan como las tendencias (InsideRun a DefAgg). El resto puede ser 0.<br>
+      - <code>Pos</code> debe ser uno de: QB, RB, FB, WR, TE, OL, DL, LB, DB, K, P.
+    </div>
+
+    <h2>5. Sustitución Automática (Rotación)</h2>
+    <p>El juego simula la "Fatiga". Como la fatiga alta reduce drásticamente el rendimiento, la IA rota automáticamente a los jugadores. <strong>Se recomienda encarecidamente tener suficientes suplentes por posición.</strong></p>
+    <ul>
+      <li><strong>Titulares Base</strong>: QB(1), RB(1), WR(3), TE(2), OL(5), DL(4), LB(3), DB(4)</li>
+      <li>Si faltan suplentes, jugadores de otras posiciones serán forzados a jugar ahí, sufriendo penalizaciones masivas en sus atributos.</li>
+    </ul>
+  </div>
+
+</div>
+
+</body>
+</html>
